@@ -1,6 +1,7 @@
-package chain
+package itask
 
 import (
+	"log"
 	"sync"
 	"time"
 )
@@ -9,6 +10,13 @@ type Task struct {
 	preHandlers  []*Handler // sync execute
 	handlers     []*Handler // can be sync or parallel
 	postHandlers []*Handler // sync execute
+	onRecover    func(*RecoverMsg)
+}
+
+type RecoverMsg struct {
+	FuncName  string
+	StartTime int64
+	Err       interface{}
 }
 
 func NewTask() *Task {
@@ -16,68 +24,100 @@ func NewTask() *Task {
 	return res
 }
 
-func (c *Task) PreProcess(f interface{}, args ...interface{}) *Task {
+func (t *Task) PreProcess(f interface{}, args ...interface{}) *Task {
 	h := NewHandler(f, args...)
-	c.preHandlers = append(c.preHandlers, h)
-	return c
+	t.preHandlers = append(t.preHandlers, h)
+	return t
 }
 
-func (c *Task) Process(f interface{}, args ...interface{}) *Task {
+func (t *Task) Process(f interface{}, args ...interface{}) *Task {
 	h := NewHandler(f, args...)
-	c.handlers = append(c.handlers, h)
-	return c
+	t.handlers = append(t.handlers, h)
+	return t
 }
 
-func (c *Task) PostProcess(f interface{}, args ...interface{}) *Task {
+func (t *Task) PostProcess(f interface{}, args ...interface{}) *Task {
 	h := NewHandler(f, args...)
-	c.postHandlers = append(c.postHandlers, h)
-	return c
+	t.postHandlers = append(t.postHandlers, h)
+	return t
+}
+
+func (t *Task) SetRecover(f func(*RecoverMsg)) {
+	t.onRecover = f
+}
+
+func (t *Task) deferFunc(wg *sync.WaitGroup, h *Handler, startTime int64) {
+	if wg != nil {
+		wg.Done()
+	}
+	if r := recover(); r != nil {
+		if t.onRecover != nil {
+			t.onRecover(&RecoverMsg{GetFuncName(h), startTime, r})
+		} else {
+			log.Println(GetFuncName(h), r)
+		}
+	}
 }
 
 // sync execution
-func (c *Task) Run() {
-	for _, f := range c.preHandlers {
-		f.Call()
+func (t *Task) Run() {
+	var h Handler
+	defer t.deferFunc(nil, &h, time.Now().UnixNano())
+	for i := range t.preHandlers {
+		h = *t.preHandlers[i]
+		h.Call()
 	}
-	for _, f := range c.handlers {
-		f.Call()
+	for i := range t.handlers {
+		h = *t.handlers[i]
+		h.Call()
 	}
-	for _, f := range c.postHandlers {
-		f.Call()
+	for i := range t.postHandlers {
+		h = *t.postHandlers[i]
+		h.Call()
 	}
 }
 
 // parallel execute, waiting for all go routine finished
-func (c *Task) Parallel() {
-	for _, f := range c.preHandlers {
-		f.Call()
+func (t *Task) Parallel() {
+	var h Handler
+	defer t.deferFunc(nil, &h, time.Now().UnixNano())
+	for i := range t.preHandlers {
+		h = *t.preHandlers[i]
+		h.Call()
 	}
+
 	wg := &sync.WaitGroup{}
-	for i := range c.handlers {
+	for i := range t.handlers {
 		wg.Add(1)
 		go func(f *Handler) {
+			defer t.deferFunc(wg, f, time.Now().UnixNano())
 			f.Call()
-			wg.Done()
-		}(c.handlers[i])
+		}(t.handlers[i])
 	}
 	wg.Wait()
-	for _, f := range c.postHandlers {
-		f.Call()
+
+	for i := range t.postHandlers {
+		h = *t.postHandlers[i]
+		h.Call()
 	}
 }
 
 // parallel execute with timeout
-func (c *Task) ParallelWithTimeout(timeout time.Duration) error {
-	for _, f := range c.preHandlers {
-		f.Call()
+func (t *Task) ParallelWithTimeout(timeout time.Duration) error {
+	var h Handler
+	defer t.deferFunc(nil, &h, time.Now().UnixNano())
+	for i := range t.preHandlers {
+		h = *t.preHandlers[i]
+		h.Call()
 	}
+
 	wg := &sync.WaitGroup{}
-	for i := range c.handlers {
+	for i := range t.handlers {
 		wg.Add(1)
 		go func(f *Handler) {
+			defer t.deferFunc(wg, f, time.Now().UnixNano())
 			f.Call()
-			wg.Done()
-		}(c.handlers[i])
+		}(t.handlers[i])
 	}
 
 	done := make(chan int)
@@ -90,26 +130,35 @@ func (c *Task) ParallelWithTimeout(timeout time.Duration) error {
 	case <-time.After(timeout): // timeout
 		return ErrExecuteTimeout
 	}
-	for _, f := range c.postHandlers {
-		f.Call()
+
+	for i := range t.postHandlers {
+		h = *t.postHandlers[i]
+		h.Call()
 	}
 	return nil
 }
 
 // submit async job
-func (c *Task) Async() {
+func (t *Task) Async() {
 	// TODO: write manager to schedule job
 	go func() {
-		for _, f := range c.preHandlers {
-			f.Call()
+		var h Handler
+		defer t.deferFunc(nil, &h, time.Now().UnixNano())
+		for i := range t.preHandlers {
+			h = *t.preHandlers[i]
+			h.Call()
 		}
-		for i := range c.handlers {
+
+		for i := range t.handlers {
 			go func(f *Handler) {
+				defer t.deferFunc(nil, f, time.Now().UnixNano())
 				f.Call()
-			}(c.handlers[i])
+			}(t.handlers[i])
 		}
-		for _, f := range c.postHandlers {
-			f.Call()
+
+		for i := range t.postHandlers {
+			h = *t.postHandlers[i]
+			h.Call()
 		}
 	}()
 }

@@ -1,4 +1,4 @@
-package chain
+package itask
 
 import "sync"
 
@@ -40,7 +40,6 @@ func (c *BoolChain) Call(f interface{}, args ...interface{}) *BoolChain {
 
 // check all the conditions in pipeline
 func (c *BoolChain) Run() bool {
-	// check must match
 	for _, f := range c.handlers {
 		if !f.BoolCall() {
 			return false

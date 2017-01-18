@@ -1,4 +1,4 @@
-package chain
+package itask
 
 type Chain struct {
 	terminate bool
