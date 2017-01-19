@@ -2,8 +2,13 @@ package itask
 
 import "sync"
 
+/*
+Each return value of handler indicates whether to continue chain call
+return [true]: continue call
+return [false]: intercept call
+*/
 type BoolChain struct {
-	handlers []*Handler // registered funcs
+	handlers []*Handler
 	result   bool
 }
 
@@ -38,7 +43,10 @@ func (c *BoolChain) Call(f interface{}, args ...interface{}) *BoolChain {
 	return c
 }
 
-// check all the conditions in pipeline
+/**
+Check all the conditions in pipeline, funcs executed following the slice order.
+Once func returns false, the following func will not be executed.
+*/
 func (c *BoolChain) Run() bool {
 	for _, f := range c.handlers {
 		if !f.BoolCall() {
@@ -48,7 +56,10 @@ func (c *BoolChain) Run() bool {
 	return true
 }
 
-// check all the conditions in parallel, wait for result
+/**
+Check all the conditions in parallel, wait for result.
+All funcs will be executed, but return false if one func returns false.
+*/
 func (c *BoolChain) Parallel() bool {
 	// run parallel
 	wg := &sync.WaitGroup{}

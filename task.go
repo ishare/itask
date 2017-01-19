@@ -15,7 +15,7 @@ type Task struct {
 
 type RecoverMsg struct {
 	FuncName  string
-	StartTime int64
+	StartTime int64 // in nano seconds
 	Err       interface{}
 }
 
